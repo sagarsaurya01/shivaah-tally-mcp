@@ -234,7 +234,7 @@ async function loadUsers(){
       '<td>'+powerBadge(u.power)+'</td><td style="max-width:220px">'+data+'</td><td>'+access+'</td><td style="max-width:170px">'+see+'</td>'+
       '<td style="white-space:nowrap">'+
         '<button class="small" data-act="edit" data-u="'+esc(u.username)+'">Edit</button> '+
-        '<button class="small" data-act="link" data-u="'+esc(u.username)+'">Connect link</button> '+
+        '<button class="small" data-act="link" data-u="'+esc(u.username)+'">Invite</button> '+
         '<button class="small" data-act="toggle" data-u="'+esc(u.username)+'" data-on="'+(u.active?0:1)+'">'+(u.active?'Switch off':'Switch on')+'</button> '+
         '<button class="small" data-act="reset" data-u="'+esc(u.username)+'">Reset pw</button> '+
         '<button class="small danger" data-act="remove" data-u="'+esc(u.username)+'">Remove</button>'+
@@ -258,42 +258,50 @@ async function addUser(){
   if(!r.ok){ toast(r.error,true); return; }
   $("newUser").value=""; $("newDisplay").value=""; $("newEmail").value=""; $("newPhone").value=""; fillPower($("newPower"),"member"); fillJob($("newJob"),"accountant");
   renderAreas($("newAreas"),rolePreset("accountant")); renderCompanies($("newCompanies"),companies.map(c=>c.company_id)); syncAddForm();
-  showLink(user,email); loadUsers();
+  showInvite(user,pw,email,phone); loadUsers();
 }
 
-function inviteText(username,pw){
-  return "Hi, here is your access to the Shivaah data.\n\n"+
-    "Login name: "+username+"\nPassword: "+pw+"\n\n"+
-    "Steps:\n"+
-    "1) Download the app: "+DOWNLOAD_URL+"\n"+
-    "2) Run it and enter the name + password above (just once).\n"+
-    "3) Open Claude and ask your questions.\n\n"+
-    "Keep this password private.";
+function connectText(username,pw){
+  return "Hi "+username+", here is your access to the Shivaah data (works on Windows or Mac).\n\n"+
+    "Add it in Claude once:\n"+
+    "1) Open Claude → Settings → Connectors → Add custom connector.\n"+
+    "2) Paste this address:\n"+FUNCTION_URL+"\n"+
+    "3) Click Add — a sign-in page opens.\n"+
+    "4) Sign in with:\n   Name: "+username+"\n   Password: "+(pw||"(the password your admin gave you)")+"\n\n"+
+    "Then just ask, e.g. \"What were our sales this month?\". It is read-only and every query is logged. Keep your password private.";
 }
-function showInvite(user,pw,email,phone){
-  const msg=inviteText(user,pw);
-  const subject="Your Shivaah data access";
-  const mailto="mailto:"+encodeURIComponent(email||"")+"?subject="+encodeURIComponent(subject)+"&body="+encodeURIComponent(msg);
-  const wa="https://wa.me/"+(phone?phone.replace(/[^0-9]/g,""):"")+"?text="+encodeURIComponent(msg);
+function inviteCard(user,pw,email){
+  const msg=connectText(user,pw);
+  const mailto="mailto:"+encodeURIComponent(email||"")+"?subject="+encodeURIComponent("Your Shivaah data access")+"&body="+encodeURIComponent(msg);
+  const wa="https://wa.me/?text="+encodeURIComponent(msg);
   $("overlay").innerHTML=
-    '<div class="card modal"><h2 style="margin-bottom:6px">Account created — send the invite</h2>'+
-      '<p class="muted" style="margin:0 0 6px">For <strong>'+esc(user)+'</strong>. The password is shown only now.</p>'+
-      '<div class="pw">'+esc(pw)+'</div>'+
-      '<div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:6px">'+
-        (email?'<a class="btnlink primary" href="'+esc(mailto)+'">Send by email</a>':'<button class="btnlink" id="iNoEmail" disabled title="Add an email above to enable">Send by email</button>')+
-        '<a class="btnlink" href="'+esc(wa)+'" target="_blank" rel="noopener">Send on WhatsApp</a>'+
-        '<button class="btnlink" id="iCopyMsg">Copy invite</button>'+
-        '<button class="btnlink" id="iCopyPw">Copy password</button>'+
+    '<div class="card modal"><h2 style="margin-bottom:6px">Invite — '+esc(user)+'</h2>'+
+      '<p class="muted" style="margin:0 0 8px">They add the connector once, then sign in with their own name + password. Works on Windows and Mac.</p>'+
+      '<label class="muted" style="font-size:12px">Connector address (same for everyone)</label>'+
+      '<div class="pw" style="font-size:12px;word-break:break-all;text-transform:none;letter-spacing:0">'+esc(FUNCTION_URL)+'</div>'+
+      '<div style="margin-top:8px;font-size:14px">Name: <strong>'+esc(user)+'</strong></div>'+
+      (pw
+        ? '<div style="margin-top:4px;font-size:14px">Password: <strong>'+esc(pw)+'</strong> <span class="muted">(shown once)</span></div>'
+        : '<div style="margin-top:4px;font-size:13px" class="muted">Password was set earlier (not shown). Use <strong>Reset password</strong> to issue a new one.</div>')+
+      '<div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:12px">'+
+        '<button class="btnlink primary" id="iCopyUrl">Copy address</button>'+
+        '<a class="btnlink" id="iMail" href="'+esc(mailto)+'">Send by email</a>'+
+        '<a class="btnlink" id="iWa" href="'+esc(wa)+'" target="_blank" rel="noopener">WhatsApp</a>'+
+        '<button class="btnlink" id="iCopyMsg">Copy instructions</button>'+
+        (pw?'':'<button class="btnlink" id="iReset">Reset password</button>')+
       '</div>'+
-      '<p class="hint" id="iNote">"Send by email" opens your own email app with the message ready — you just hit Send. It goes from your address, no setup.</p>'+
+      '<p class="hint">In Claude: Settings → Connectors → Add custom connector → paste the address → a sign-in page opens → they log in. Switch a person off, or Reset password, any time.</p>'+
       '<div style="margin-top:14px"><button id="iDone" style="width:100%">Done</button></div>'+
     '</div>';
   $("overlay").classList.remove("hide");
   const copy=(t,m)=>navigator.clipboard.writeText(t).then(()=>toast(m));
-  $("iCopyMsg").onclick=()=>copy(msg,"Invite copied");
-  $("iCopyPw").onclick=()=>copy(pw,"Password copied");
+  $("iCopyUrl").onclick=()=>copy(FUNCTION_URL,"Address copied");
+  $("iCopyMsg").onclick=()=>copy(msg,"Instructions copied");
+  if(!pw && $("iReset")) $("iReset").onclick=()=>resetPw(user);
   $("iDone").onclick=()=>$("overlay").classList.add("hide");
 }
+function showInvite(user,pw,email,phone){ inviteCard(user,pw,email); }
+function showLink(user){ inviteCard(user,"",""); }
 async function resetPw(user){ const pw=newPassword(); const r=await api("reset_password",{username:user,password:pw}); if(!r.ok){toast(r.error,true);return;} showPassword(user,pw,"Password reset"); }
 async function toggleActive(user,on){ const r=await api("set_active",{username:user,active:!!on}); if(!r.ok){toast(r.error,true);return;} toast(user+(on?" switched on":" switched off")); loadUsers(); }
 async function removeUser(user){ if(!confirm("Remove "+user+"? Access stops immediately.")) return; const r=await api("remove_user",{username:user}); if(!r.ok){toast(r.error,true);return;} toast(user+" removed"); loadUsers(); }
@@ -345,43 +353,7 @@ function showPassword(user,pw,title){
   $("btnCloseModal").onclick=()=>$("overlay").classList.add("hide");
 }
 
-function connectText(username,link){
-  return "Hi "+username+", here is your access to the Shivaah data (works on Windows or Mac).\n\n"+
-    "Add it in Claude once:\n"+
-    "1) Open Claude → Settings → Connectors → Add custom connector.\n"+
-    "2) Paste this link:\n"+link+"\n"+
-    "3) Save. Then just ask, e.g. \"What were our sales this month?\"\n\n"+
-    "This link is your key — keep it private. Everything is read-only and logged.";
-}
-async function showLink(user,email){
-  $("overlay").innerHTML='<div class="card modal"><h2>Getting link…</h2></div>'; $("overlay").classList.remove("hide");
-  let r=await linkApi("get",user);
-  if(r.ok && !r.token) r=await linkApi("make",user);
-  if(!r.ok){ toast(r.error,true); $("overlay").classList.add("hide"); return; }
-  renderLinkModal(user, FUNCTION_URL+"/"+r.token, email);
-}
-function renderLinkModal(user,link,email){
-  const msg=connectText(user,link);
-  const mailto="mailto:"+encodeURIComponent(email||"")+"?subject="+encodeURIComponent("Your Shivaah data access")+"&body="+encodeURIComponent(msg);
-  $("overlay").innerHTML=
-    '<div class="card modal"><h2 style="margin-bottom:6px">Personal link — '+esc(user)+'</h2>'+
-      '<p class="muted" style="margin:0 0 6px">This link is '+esc(user)+'’s key — anyone who has it can read the data as '+esc(user)+'. Send it privately.</p>'+
-      '<div class="pw" style="font-size:12px;word-break:break-all;text-transform:none;letter-spacing:0">'+esc(link)+'</div>'+
-      '<div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:6px">'+
-        '<button class="btnlink primary" id="lCopy">Copy link</button>'+
-        '<a class="btnlink" id="lMail" href="'+esc(mailto)+'">Send by email</a>'+
-        '<button class="btnlink" id="lMsg">Copy full instructions</button>'+
-        '<button class="btnlink danger" id="lNew">Make a new link</button>'+
-      '</div>'+
-      '<p class="hint">They add it in Claude: <strong>Settings → Connectors → Add custom connector</strong>, paste the link, Save. Works on Windows and Mac. "Make a new link" cancels the old one — use it if a link leaks.</p>'+
-      '<div style="margin-top:14px"><button id="lDone" style="width:100%">Done</button></div>'+
-    '</div>';
-  const copy=(t,m)=>navigator.clipboard.writeText(t).then(()=>toast(m));
-  $("lCopy").onclick=()=>copy(link,"Link copied");
-  $("lMsg").onclick=()=>copy(msg,"Instructions copied");
-  $("lNew").onclick=async()=>{ if(!confirm("Make a new link for "+user+"? The current link stops working at once.")) return; const r=await linkApi("make",user); if(!r.ok){toast(r.error,true);return;} toast("New link made"); renderLinkModal(user, FUNCTION_URL+"/"+r.token, email); };
-  $("lDone").onclick=()=>$("overlay").classList.add("hide");
-}
+// (personal-link modal removed — invites now use the name+password login via inviteCard)
 
 async function loadLog(){
   $("logBody").innerHTML='<tr><td colspan="8" class="muted">Loading…</td></tr>';
