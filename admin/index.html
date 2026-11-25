@@ -146,6 +146,8 @@ const SUPABASE_URL = "https://pvixwpksfniwwwktrygw.supabase.co";
 const PUBLISHABLE_KEY = "sb_publishable_7sObIkBbeGgJOn7f7LXMbQ_HlIU1cji"; // public key, safe to publish
 // Public download link for the installer. Create it once (see repo README), then this link works.
 const DOWNLOAD_URL = "https://github.com/sagarsaurya01/shivaah-tally-mcp/releases/latest/download/ShivaahTallyMCP.exe";
+// Hosted connector (works on Windows AND Mac). A person's personal link is FUNCTION_URL + "/" + their token.
+const FUNCTION_URL = "https://pvixwpksfniwwwktrygw.supabase.co/functions/v1/tally";
 
 const $ = (id) => document.getElementById(id);
 let admin = null, myPower = "member";
@@ -159,6 +161,20 @@ async function api(action, payload) {
       body: JSON.stringify({ p_user: admin ? admin.user : "", p_password: admin ? admin.password : "", p_action: action, p_payload: payload || {} })
     });
     if (res.status === 404) return { ok: false, error: "The admin function is not installed yet. Run the SQL in Supabase first." };
+    const data = await res.json();
+    if (data && typeof data === "object" && "ok" in data) return data;
+    if (data && data.message) return { ok: false, error: data.message };
+    return { ok: false, error: "Unexpected response." };
+  } catch (e) { return { ok: false, error: "Could not reach the server: " + e.message }; }
+}
+async function linkApi(action, username) {
+  try {
+    const res = await fetch(SUPABASE_URL.replace(/\/$/, "") + "/rest/v1/rpc/tally_mcp_link_admin", {
+      method: "POST",
+      headers: { apikey: PUBLISHABLE_KEY, Authorization: "Bearer " + PUBLISHABLE_KEY, "Content-Type": "application/json" },
+      body: JSON.stringify({ p_user: admin ? admin.user : "", p_password: admin ? admin.password : "", p_action: action, p_payload: { username: username } })
+    });
+    if (res.status === 404) return { ok: false, error: "The hosted-link function is not installed yet. Run hosted_link.sql in Supabase first." };
     const data = await res.json();
     if (data && typeof data === "object" && "ok" in data) return data;
     if (data && data.message) return { ok: false, error: data.message };
@@ -218,6 +234,7 @@ async function loadUsers(){
       '<td>'+powerBadge(u.power)+'</td><td style="max-width:220px">'+data+'</td><td>'+access+'</td><td style="max-width:170px">'+see+'</td>'+
       '<td style="white-space:nowrap">'+
         '<button class="small" data-act="edit" data-u="'+esc(u.username)+'">Edit</button> '+
+        '<button class="small" data-act="link" data-u="'+esc(u.username)+'">Connect link</button> '+
         '<button class="small" data-act="toggle" data-u="'+esc(u.username)+'" data-on="'+(u.active?0:1)+'">'+(u.active?'Switch off':'Switch on')+'</button> '+
         '<button class="small" data-act="reset" data-u="'+esc(u.username)+'">Reset pw</button> '+
         '<button class="small danger" data-act="remove" data-u="'+esc(u.username)+'">Remove</button>'+
@@ -241,7 +258,7 @@ async function addUser(){
   if(!r.ok){ toast(r.error,true); return; }
   $("newUser").value=""; $("newDisplay").value=""; $("newEmail").value=""; $("newPhone").value=""; fillPower($("newPower"),"member"); fillJob($("newJob"),"accountant");
   renderAreas($("newAreas"),rolePreset("accountant")); renderCompanies($("newCompanies"),companies.map(c=>c.company_id)); syncAddForm();
-  showInvite(user,pw,email,phone); loadUsers();
+  showLink(user,email); loadUsers();
 }
 
 function inviteText(username,pw){
@@ -328,6 +345,44 @@ function showPassword(user,pw,title){
   $("btnCloseModal").onclick=()=>$("overlay").classList.add("hide");
 }
 
+function connectText(username,link){
+  return "Hi "+username+", here is your access to the Shivaah data (works on Windows or Mac).\n\n"+
+    "Add it in Claude once:\n"+
+    "1) Open Claude → Settings → Connectors → Add custom connector.\n"+
+    "2) Paste this link:\n"+link+"\n"+
+    "3) Save. Then just ask, e.g. \"What were our sales this month?\"\n\n"+
+    "This link is your key — keep it private. Everything is read-only and logged.";
+}
+async function showLink(user,email){
+  $("overlay").innerHTML='<div class="card modal"><h2>Getting link…</h2></div>'; $("overlay").classList.remove("hide");
+  let r=await linkApi("get",user);
+  if(r.ok && !r.token) r=await linkApi("make",user);
+  if(!r.ok){ toast(r.error,true); $("overlay").classList.add("hide"); return; }
+  renderLinkModal(user, FUNCTION_URL+"/"+r.token, email);
+}
+function renderLinkModal(user,link,email){
+  const msg=connectText(user,link);
+  const mailto="mailto:"+encodeURIComponent(email||"")+"?subject="+encodeURIComponent("Your Shivaah data access")+"&body="+encodeURIComponent(msg);
+  $("overlay").innerHTML=
+    '<div class="card modal"><h2 style="margin-bottom:6px">Personal link — '+esc(user)+'</h2>'+
+      '<p class="muted" style="margin:0 0 6px">This link is '+esc(user)+'’s key — anyone who has it can read the data as '+esc(user)+'. Send it privately.</p>'+
+      '<div class="pw" style="font-size:12px;word-break:break-all;text-transform:none;letter-spacing:0">'+esc(link)+'</div>'+
+      '<div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:6px">'+
+        '<button class="btnlink primary" id="lCopy">Copy link</button>'+
+        '<a class="btnlink" id="lMail" href="'+esc(mailto)+'">Send by email</a>'+
+        '<button class="btnlink" id="lMsg">Copy full instructions</button>'+
+        '<button class="btnlink danger" id="lNew">Make a new link</button>'+
+      '</div>'+
+      '<p class="hint">They add it in Claude: <strong>Settings → Connectors → Add custom connector</strong>, paste the link, Save. Works on Windows and Mac. "Make a new link" cancels the old one — use it if a link leaks.</p>'+
+      '<div style="margin-top:14px"><button id="lDone" style="width:100%">Done</button></div>'+
+    '</div>';
+  const copy=(t,m)=>navigator.clipboard.writeText(t).then(()=>toast(m));
+  $("lCopy").onclick=()=>copy(link,"Link copied");
+  $("lMsg").onclick=()=>copy(msg,"Instructions copied");
+  $("lNew").onclick=async()=>{ if(!confirm("Make a new link for "+user+"? The current link stops working at once.")) return; const r=await linkApi("make",user); if(!r.ok){toast(r.error,true);return;} toast("New link made"); renderLinkModal(user, FUNCTION_URL+"/"+r.token, email); };
+  $("lDone").onclick=()=>$("overlay").classList.add("hide");
+}
+
 async function loadLog(){
   $("logBody").innerHTML='<tr><td colspan="8" class="muted">Loading…</td></tr>';
   const r=await api("view_log",{limit:80});
@@ -352,7 +407,7 @@ document.querySelectorAll(".tabs button").forEach(b=>b.onclick=()=>{
   const t=b.dataset.tab; $("tabPeople").classList.toggle("hide",t!=="people"); $("tabLog").classList.toggle("hide",t!=="log"); if(t==="log") loadLog();
 });
 $("usersBody").addEventListener("click",e=>{ const btn=e.target.closest("button"); if(!btn) return; const u=btn.dataset.u,act=btn.dataset.act;
-  if(act==="edit") editAccess(u); else if(act==="toggle") toggleActive(u,btn.dataset.on==="1"); else if(act==="reset") resetPw(u); else if(act==="remove") removeUser(u); });
+  if(act==="edit") editAccess(u); else if(act==="link") showLink(u); else if(act==="toggle") toggleActive(u,btn.dataset.on==="1"); else if(act==="reset") resetPw(u); else if(act==="remove") removeUser(u); });
 $("overlay").addEventListener("click",e=>{ if(e.target===$("overlay")) $("overlay").classList.add("hide"); });
 </script>
 </body>
